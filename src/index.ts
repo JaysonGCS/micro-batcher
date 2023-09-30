@@ -1,116 +1,174 @@
-type AsyncFunction<A, O> = (...args: A[] | never) => Promise<O>;
+import { PayloadManager, PromiseLocker } from './payloadManager';
 
-export function MicroBatcher<O, A>(func: AsyncFunction<A, O>) {
+export type AsyncFunction<A, O> = A extends void
+  ? never
+  : A extends any[]
+  ? (...args: A) => Promise<O>
+  : (arg: A) => Promise<O>;
+
+export type PayloadParam<A> = A extends any[] ? A : [A];
+
+/**
+ * Previous Implementation:
+ * type AsyncBatchFunction<T extends any[], O> = (arg: T[]) => Promise<O>;
+ */
+export type AsyncBatchFunction<T, O> = (arg: PayloadParam<T>[]) => Promise<O[]>;
+
+export const DEFAULT_BATCH_WINDOW_MS = 50;
+
+export interface BatchOptions {
+  /**
+   * Optional. If set with a valid size, once the current payload queue reaches the limit before the interval ends, kick start the batcher immediately.
+   */
+  payloadWindowSizeLimit?: number;
+  /**
+   * Optional. Default is 50ms, override to set the interval for batching the payload.
+   */
+  batchingIntervalInMs?: number;
+  /**
+   * Optional. Default is false, determine if should go through batch resolver function even for single payload.
+   */
+  shouldUseBatchResolverForSinglePayload?: boolean;
+}
+
+const DEFAULT_BATCH_OPTIONS: BatchOptions = {};
+
+export function MicroBatcher<A, O>(func: AsyncFunction<A, O>) {
   class MicroBatcher {
-    private fun: AsyncFunction<A, O>;
-    private static batchFun: AsyncFunction<A[], O[]> | undefined = undefined;
-    private static batchCounter: number = 0;
-    private static payloadPositionCounter: number = 0;
-    private static payloadQueue: A[][] = [];
-    // Default is 50ms
-    private static threshold = 50;
-    private static hasBatchStarted = false;
-    private static batcherResult: (O | undefined)[][] = [];
-    private static batchReadyStatus: boolean[] = [];
+    private static _singlePayloadFunction: AsyncFunction<A, O>;
+    private static _batchResolver: AsyncBatchFunction<A, O> | undefined;
+    // The timeout id of the current batcher, can be used for short circuit to start the batcher before the interval if needed (e.g. payloadWindowSizeLimit)
+    private static _currentBatchTimeoutId: NodeJS.Timeout | undefined;
+    private static _payloadManager = PayloadManager<PayloadParam<A>, O>();
 
-    constructor(func: AsyncFunction<A, O>) {
-      this.fun = func;
+    private static _activeBatchCount: number = 0;
+
+    private static batchingIntervalInMs = 0;
+    private static payloadWindowSizeLimit: number | undefined = undefined;
+    private static shouldUseBatchResolverForSinglePayload: boolean = false;
+
+    constructor(singlePayloadFunction: AsyncFunction<A, O>) {
+      MicroBatcher._singlePayloadFunction = singlePayloadFunction;
     }
 
-    private static batchProcess = async (
-      batchId: number,
-      singleFunc: AsyncFunction<A, O>
-    ) => {
-      let inFlightResult;
-      if (MicroBatcher.payloadQueue[batchId].length === 1) {
-        inFlightResult = Promise.all([
-          singleFunc(MicroBatcher.payloadQueue[batchId][0]),
-        ]);
-      } else {
-        inFlightResult = MicroBatcher.batchFun!(
-          MicroBatcher.payloadQueue[batchId]
-        );
-      }
-      return await inFlightResult;
-    };
+    private static processPayload(payloadLockerList: PromiseLocker<PayloadParam<A>, O>[]) {
+      const payloadList: PayloadParam<A>[] = payloadLockerList.map((pl) => {
+        return pl.payload;
+      });
 
-    private intercept = (func: AsyncFunction<A, O>) => {
-      return new Proxy(func, {
-        apply: function (target, _, argumentsList) {
-          // TODO: take note this id may keep growing, batcherResult array may keep growing. we might need some sort of circular buffer
-          const batchId = MicroBatcher.batchCounter;
-          const payloadId = MicroBatcher.payloadPositionCounter;
-          let totalPayloadForThisBatch = 0;
-          console.debug(`batch: ${batchId} id: ${payloadId}`, argumentsList);
-          if (MicroBatcher.batchFun !== undefined && argumentsList.length > 0) {
-            // Bump the counter for payload position so that next access would use a new payload position id
-            MicroBatcher.payloadPositionCounter += 1;
-            if (MicroBatcher.payloadQueue[batchId] === undefined) {
-              MicroBatcher.payloadQueue[batchId] = [];
+      const shouldUseBatchResolver =
+        payloadList.length > 1 ||
+        (MicroBatcher.shouldUseBatchResolverForSinglePayload && payloadList.length === 1);
+      if (MicroBatcher._batchResolver && shouldUseBatchResolver) {
+        MicroBatcher._activeBatchCount++;
+        MicroBatcher._batchResolver(payloadList)
+          .then((results) => {
+            if (results.length !== payloadList.length) {
+              throw Error(
+                `Batch function has different number of results (${results.length}) as payload (${payloadList.length})`
+              );
             }
-            MicroBatcher.payloadQueue[batchId].push(
-              argumentsList.length === 1
-                ? argumentsList[0]
-                : { ...argumentsList }
-            );
-
-            if (!MicroBatcher.hasBatchStarted) {
-              MicroBatcher.hasBatchStarted = true;
-              MicroBatcher.batchReadyStatus[batchId] = false;
-              setTimeout(() => {
-                console.debug("BATCH START");
-                // Bump batchCounter so that if there is incoming payload while the current batch is still running,
-                // they may kick start without waiting for current batch to finish
-                MicroBatcher.batchCounter += 1;
-                MicroBatcher.batchProcess(batchId, target)
-                  .then((result) => {
-                    MicroBatcher.batcherResult[batchId] = result;
-                  })
-                  .finally(() => {
-                    // Keep track of the payload count for this batch, will be used to determine if the current batch is done extracting
-                    totalPayloadForThisBatch =
-                      MicroBatcher.payloadQueue[batchId].length;
-                    // Clear the payload queue once the current batch has finished fetching. This is to allow next batch to continue asynchronously
-                    MicroBatcher.payloadQueue[batchId] = [];
-                    // Reset current counter for next batch to start from 0 again
-                    MicroBatcher.payloadPositionCounter = 0;
-                  });
-                // Setting this to false to allow next batch to kick start without waiting for current batch to finish
-                MicroBatcher.hasBatchStarted = false;
-              }, MicroBatcher.threshold);
-            }
-            let extractionCounter = 0;
-            return new Promise((resolve) => {
-              setTimeout(() => {
-                resolve(MicroBatcher.batcherResult[batchId][payloadId]);
-                // Every "resolve" will be considered a successful "extraction"
-                extractionCounter += 1;
-                // After extraction, set the result of this slot to "undefined"
-                MicroBatcher.batcherResult[batchId][payloadId] = undefined;
-                // If extractionCounter is the same as the total payload, set the status of this slot "true" to signal completion
-                MicroBatcher.batchReadyStatus[batchId] =
-                  extractionCounter === totalPayloadForThisBatch;
-              }, MicroBatcher.threshold);
+            results.forEach((result, index) => {
+              const {
+                promiseLock: { release }
+              } = payloadLockerList[index];
+              release(result);
             });
-          } else {
-            return target(...argumentsList);
+          })
+          .finally(() => {
+            MicroBatcher._activeBatchCount--;
+          });
+      } else {
+        payloadList.forEach((payload: PayloadParam<A>, index) => {
+          const {
+            promiseLock: { release, releaseWithError }
+          } = payloadLockerList[index];
+          MicroBatcher._activeBatchCount++;
+
+          // TODO: Try to make type better without ts-ignore
+          // @ts-ignore
+          MicroBatcher._singlePayloadFunction(...payload)
+            .then((result) => {
+              release(result);
+            })
+            .catch((e) => {
+              releaseWithError(e);
+            })
+            .finally(() => {
+              MicroBatcher._activeBatchCount--;
+            });
+        });
+      }
+    }
+
+    intercept = (func: AsyncFunction<A, O>) => {
+      const runBatcher = (processCount?: number) => {
+        MicroBatcher._currentBatchTimeoutId = undefined;
+        // TODO: add concurrent batcher limit support
+        const payloadForBatchProcessing: PromiseLocker<PayloadParam<A>, O>[] =
+          MicroBatcher._payloadManager.consumePayloadList(processCount);
+        MicroBatcher.processPayload(payloadForBatchProcessing);
+      };
+
+      const startBatcherEarlierIfEligible = () => {
+        const currentPayloadSize: number = MicroBatcher._payloadManager.getCurrentSize();
+        if (
+          MicroBatcher.payloadWindowSizeLimit !== undefined &&
+          MicroBatcher.payloadWindowSizeLimit <= currentPayloadSize
+        ) {
+          clearTimeout(MicroBatcher._currentBatchTimeoutId);
+          runBatcher(MicroBatcher.payloadWindowSizeLimit);
+        }
+      };
+
+      return new Proxy(func, {
+        apply: async (_target, _, argumentsList: PayloadParam<A>) => {
+          const result: () => Promise<O> =
+            MicroBatcher._payloadManager.submitPayload(argumentsList);
+
+          if (MicroBatcher._currentBatchTimeoutId === undefined) {
+            const timeoutId = setTimeout(() => {
+              runBatcher();
+            }, MicroBatcher.batchingIntervalInMs);
+            MicroBatcher._currentBatchTimeoutId = timeoutId;
           }
-        },
+
+          startBatcherEarlierIfEligible();
+
+          return result().catch((e) => {
+            throw Error(e);
+          });
+        }
       });
     };
 
-    batchThreshold(threshold: number) {
-      MicroBatcher.threshold = threshold;
-      return this;
-    }
+    /**
+     *
+     * @param batch  - Optional. The batch resolver/function to process the accumulated payload array.
+     * @param batchOptions - Optional. Options to configure batching behaviour.
+     * @returns
+     * - The returned array length and the payload array length are required to be the same.
+     * - Each element's position in the result array will be mapped back to the corresponding payload element's position.
+     */
+    batchResolver = (
+      batch: AsyncBatchFunction<A, O>,
+      batchOptions: BatchOptions = DEFAULT_BATCH_OPTIONS
+    ) => {
+      MicroBatcher._batchResolver = batch;
+      const {
+        payloadWindowSizeLimit,
+        batchingIntervalInMs = DEFAULT_BATCH_WINDOW_MS,
+        shouldUseBatchResolverForSinglePayload = false
+      } = batchOptions;
+      MicroBatcher.payloadWindowSizeLimit = payloadWindowSizeLimit;
+      MicroBatcher.batchingIntervalInMs = batchingIntervalInMs;
+      MicroBatcher.shouldUseBatchResolverForSinglePayload = shouldUseBatchResolverForSinglePayload;
 
-    batchFunction(batch: AsyncFunction<A[], O[]>) {
-      MicroBatcher.batchFun = batch;
       return this;
-    }
+    };
 
     build(): AsyncFunction<A, O> {
-      return this.intercept(this.fun);
+      return this.intercept(MicroBatcher._singlePayloadFunction);
     }
   }
 
