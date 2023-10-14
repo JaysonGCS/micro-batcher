@@ -1,0 +1,111 @@
+.box {
+    width: 20px;
+    height: 20px;
+    background: white;
+}
+
+.fulfilBox {
+    width: 20px;
+    height: 20px;
+    background: blue;
+}
+
+.requestContainer {
+    display: flex;
+    justify-content: space-around;
+}
+
+.fulfilRequestContainer {
+    composes: requestContainer;
+    position: absolute;
+    width: 100%
+}
+
+.payloadQueue {
+    height: 70px;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-around;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+    min-width: 200px;
+}
+
+.payloadInterceptorContainer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 60px
+}
+
+.payload {
+    background: white;
+    border-radius: 100%;
+    height: 30px;
+    width: 30px;
+}
+
+.demoContainer {
+    max-width: 400px;
+    width: inherit;
+    border: 4px solid cadetblue;
+    padding: 20px;
+    border-radius: 8px;
+}
+
+.componentPayloadContainer {
+    position: relative;
+}
+
+.container {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+}
+
+.microBatcherContainer {
+    margin-top: 20px;
+    padding: 20px;
+    border: 4px dotted gray;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+}
+
+.resolverContainer {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-around;
+    width: 100%;
+}
+
+.singleResolver {
+    // forestgreen looks good too
+    background: darkgreen;
+    width: 120px;
+    padding: 20px;
+    border-radius: 4px;
+}
+
+.batchResolver {
+    background: midnightblue;
+    width: 120px;
+    padding: 20px;
+    border-radius: 4px;
+}
+
+.microBatcherMiddleContainer {
+    position: relative;
+}
+
+.microBatcherMiddleContainerProcessing {
+    height: 60px;
+    width: 100%;
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
