@@ -4,13 +4,19 @@ Micro-batcher is a lightweight, zero-dependency and experimental interval-based 
 
 ## Documentation
 
-### How to use MicroBatcher?
+### When to use it?
 
-Essentially, by providing a single and batch resolver function to the MicroBatcher builder, it produces a function that has the same function signature as the provided single resolver function.
+If there is a burst usage of multiple callers accessing same function with different payload, and we would like to intercept these calls and delegate the payloads to another function for batch processing.
 
-The produced function is a drop-in replacement for all the existing single resolver function usage. Upon burst usages on this function, the payload from all the callers within the batching interval will be intercepted, accumulated and eventually processed by the provided batch resolver function.
+### MicroBatcher in a nutshell
 
-After the batch function has been resolved, the results will then be distributed back to the individual caller.
+![micro batcher demo](./gif/demo.gif)
+
+Essentially, MicroBatcher is a utility that accepts two functions - the original function and the batch resolver function - and produces a new function with the exact same function signature as the original function.
+
+The produced function serves as a seamless replacement for all original single payload function usages. When the produced function experiences bursts of usage, it intercepts, accumulates, and subsequently processes payloads from the callers within the batching interval using the provided batch resolver function.
+
+Once the batch function has been resolved, the results are then distributed back to the individual callers. From the caller's perspective, they only need to be concerned with fetching their own data.
 
 ### API examples
 
