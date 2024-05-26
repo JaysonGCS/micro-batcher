@@ -3,8 +3,8 @@ import { PayloadManager, PromiseLocker } from './payloadManager';
 export type AsyncFunction<A, O> = A extends void
   ? never
   : A extends any[]
-  ? (...args: A) => Promise<O>
-  : (arg: A) => Promise<O>;
+    ? (...args: A) => Promise<O>
+    : (arg: A) => Promise<O>;
 
 export type PayloadParam<A> = A extends any[] ? A : [A];
 
@@ -18,13 +18,13 @@ export const DEFAULT_BATCH_WINDOW_MS = 50;
 
 export interface BatchOptions {
   /**
-   * Optional. If set with a valid size, once the current payload queue reaches the limit before the interval ends, kick start the batcher immediately.
-   */
-  payloadWindowSizeLimit?: number;
-  /**
    * Optional. Default is 50ms, override to set the interval for batching the payload.
    */
   batchingIntervalInMs?: number;
+  /**
+   * Optional. If set with a valid size, once the current payload queue reaches the limit before the interval ends, kick start the batcher immediately.
+   */
+  payloadWindowSizeLimit?: number;
   /**
    * Optional. Default is false, determine if should go through batch resolver function even for single payload.
    */
