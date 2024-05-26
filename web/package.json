@@ -10,20 +10,20 @@
     "format": "prettier --write './**/*.{js,jsx,ts,tsx,css,md,json}' --config ./.prettierrc"
   },
   "dependencies": {
-    "framer-motion": "10.16.4",
-    "next": "13.5.2",
-    "nextra": "2.12.3",
-    "nextra-theme-docs": "2.12.3",
-    "react": "18.2.0",
-    "react-dom": "18.2.0"
+    "framer-motion": "~11.2.6",
+    "next": "~14.2.3",
+    "nextra": "~2.13.4",
+    "nextra-theme-docs": "~2.13.4",
+    "react": "~18.3.1",
+    "react-dom": "~18.3.1"
   },
   "devDependencies": {
-    "eslint": "^8.49.0",
-    "eslint-config-airbnb": "19.0.4",
-    "eslint-config-prettier": "9.0.0",
-    "eslint-plugin-prettier": "5.0.0",
-    "prettier": "3.0.3",
-    "sass": "1.69.0",
-    "typescript": "5.2.2"
+    "eslint": "~8.57.0",
+    "eslint-config-airbnb": "~19.0.4",
+    "eslint-config-prettier": "~9.0.0",
+    "eslint-plugin-prettier": "~5.0.1",
+    "prettier": "~3.0.3",
+    "sass": "~1.69.7",
+    "typescript": "~5.2.2"
   }
 }
